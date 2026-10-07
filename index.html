@@ -179,7 +179,7 @@
     </div>
     <p class="tip">不想用蓝牙直连时，走粘贴方式（任何手机都行）：在蓝牙终端里发 <code>log</code> 看列表、
       <code>log:12</code> 导出某一次明细，把文字整段粘到下框。</p>
-    <textarea id="paste" placeholder="把 log 与 log:&lt;run&gt; 的输出粘在这里，例如：&#10;SEG 0 kind=dis t0=0 dur=1740 n=58&#10;S 0s 63.20V 12.30A 87%&#10;S 30s 63.05V 15.40A 86%"></textarea>
+    <textarea id="paste" placeholder="把 log 与 log:&lt;run&gt; 的输出粘在这里，例如：&#10;SEG 0 kind=dis t0=0 dur=1740 n=58 unix=1730000000&#10;S 0s 63.20V 12.30A 87%&#10;S 30s 63.05V 15.40A 86%"></textarea>
     <div class="row" style="margin-top:8px">
       <button id="btnParse">解析文本并绘图</button>
       <button id="btnClear" class="sec">清空</button>
@@ -216,14 +216,24 @@ function ensureRun(run, kind) {
   if (kind) r.kind = kind;
   return r;
 }
-function ensureSeg(run, seg, kind, t0, dur) {
+function ensureSeg(run, seg, kind, t0, dur, unix) {
   const r = ensureRun(run, kind);
-  if (!r.segs.has(seg)) r.segs.set(seg, { seg, kind: kind || r.kind, t0: t0 || 0, dur: dur || 0, samples: [] });
+  if (!r.segs.has(seg)) r.segs.set(seg, { seg, kind: kind || r.kind, t0: t0 || 0, dur: dur || 0, unix: unix || 0, samples: [] });
   const s = r.segs.get(seg);
   if (t0) s.t0 = t0;
   if (dur) s.dur = dur;
   if (kind) s.kind = kind;
+  if (unix) { s.unix = unix; if (!r.unix) r.unix = unix; }
   return s;
+}
+
+/* 整次过程开始的 unix 秒(0 = 固件未对时) */
+function runUnix(run) {
+  const r = runs.get(run);
+  if (!r) return 0;
+  if (r.unix) return r.unix;
+  for (const s of r.segs.values()) if (s.unix) return s.unix;
+  return 0;
 }
 
 function parseText(txt) {
@@ -232,14 +242,14 @@ function parseText(txt) {
     const L = raw.trim();
     if (!L || L[0] === '{') continue;          // 忽略每秒 JSON
     let m;
-    if ((m = L.match(/^idx=\d+\s+run=(\d+)\s+seg=(\d+)\s+kind=(dis|chg)\s+t0=(\d+)s\s+dur=(\d+)s\s+n=(\d+)/))) {
-      ensureSeg(+m[1], +m[2], m[3], +m[4], +m[5]);
+    if ((m = L.match(/^idx=\d+\s+run=(\d+)\s+seg=(\d+)\s+kind=(dis|chg)\s+t0=(\d+)s\s+dur=(\d+)s\s+n=(\d+)(?:\s+unix=(\d+))?/))) {
+      ensureSeg(+m[1], +m[2], m[3], +m[4], +m[5], m[7] ? +m[7] : 0);
       continue;
     }
     if ((m = L.match(/^RUN\s+(\d+)/))) { curRun = +m[1]; ensureRun(curRun); curSeg = null; continue; }
-    if ((m = L.match(/^SEG\s+(\d+)\s+kind=(dis|chg)\s+t0=(\d+)\s+dur=(\d+)\s+n=(\d+)/))) {
+    if ((m = L.match(/^SEG\s+(\d+)\s+kind=(dis|chg)\s+t0=(\d+)\s+dur=(\d+)\s+n=(\d+)(?:\s+unix=(\d+))?/))) {
       if (curRun === null) continue;
-      curSeg = ensureSeg(curRun, +m[1], m[2], +m[3], +m[4]);
+      curSeg = ensureSeg(curRun, +m[1], m[2], +m[3], +m[4], m[6] ? +m[6] : 0);
       continue;
     }
     if ((m = L.match(/^S\s+(\d+)s\s+([\d.]+)V\s+(-?[\d.]+)A\s+(\d+)%/))) {
@@ -249,12 +259,13 @@ function parseText(txt) {
   }
 }
 
-/* 把一次 run 的所有段按时间合并 */
+/* 把一次 run 的所有段按时间合并(S 行的 t 是段内相对秒, 加各段 t0 换算成整次相对秒) */
 function seriesOf(run) {
   const r = runs.get(run);
   if (!r) return [];
   let pts = [];
-  for (const s of r.segs.values()) pts = pts.concat(s.samples);
+  for (const s of r.segs.values())
+    for (const p of s.samples) pts.push({ t: s.t0 + p.t, v: p.v, i: p.i, soc: p.soc });
   pts.sort((a, b) => a.t - b.t);
   return pts;
 }
@@ -262,7 +273,11 @@ function seriesOf(run) {
 /* ============================================================
  *  2. 画图（纯 canvas，无外部依赖）
  * ============================================================ */
-function timeLabel(t) {
+function timeLabel(t, unix0) {
+  if (unix0) {                                    // 对过时: 显示真实本地时刻
+    const d = new Date((unix0 + t) * 1000);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
   const s = Math.round(t);
   if (s >= 3600) return (s / 3600).toFixed(1) + 'h';
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -330,7 +345,7 @@ function drawChart(cv, series, opt) {
   g.textAlign = 'center'; g.textBaseline = 'top'; g.fillStyle = '#6c757d';
   for (let i = 0; i <= 4; i++) {
     const t = (tMax * i) / 4;
-    g.fillText(timeLabel(t), padL + (W * i) / 4, padT + H + 6);
+    g.fillText(timeLabel(t, opt.unix0), padL + (W * i) / 4, padT + H + 6);
   }
 
   // 曲线
@@ -360,6 +375,13 @@ function drawChart(cv, series, opt) {
  * ============================================================ */
 let curRun = null;
 
+/* 简短本地时刻: 12-03 14:30 */
+function fmtClock(unix) {
+  const d = new Date(unix * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return (d.getMonth() + 1) + '-' + d.getDate() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
 function renderRunList() {
   const box = document.getElementById('runList');
   box.innerHTML = '';
@@ -367,9 +389,11 @@ function renderRunList() {
   if (!ids.length) { box.innerHTML = '<span class="state">没有解析到记录</span>'; return; }
   ids.forEach(id => {
     const r = runs.get(id);
+    const u = runUnix(id);
     const b = document.createElement('button');
     b.className = 'chip ' + (r.kind === 'chg' ? 'chg' : 'dis');
-    b.textContent = 'run ' + id;
+    b.dataset.run = id;
+    b.textContent = 'run ' + id + (u ? ' · ' + fmtClock(u) : '');
     b.onclick = () => selectRun(id);
     box.appendChild(b);
   });
@@ -380,23 +404,25 @@ function renderRunList() {
 
 function selectRun(id) {
   curRun = id;
-  [...document.querySelectorAll('#runList .chip')].forEach(c => c.classList.toggle('on', c.textContent === 'run ' + id));
+  [...document.querySelectorAll('#runList .chip')].forEach(c => c.classList.toggle('on', c.dataset.run === String(id)));
   const pts = seriesOf(id);
   if (!pts.length) { document.getElementById('chartCard').style.display = 'none'; return; }
   document.getElementById('chartCard').style.display = '';
 
+  const unix0 = runUnix(id);
   const power = pts.map(p => [p.t, p.v * p.i]);          // 放电为正, 充电为负
   const soc = pts.map(p => [p.t, p.soc]);
   const volt = pts.map(p => [p.t, p.v]);
+  const tTitle = unix0 ? '（横轴为真实时刻）' : '';
 
   drawChart(document.getElementById('cPower'),
     [{ pts: power, color: '#e8590c', axis: 0 }],
-    { title: '功率走势 (W)  正=放电  负=充电', zeroBased: true, zeroAxis: 0, dec0: 0 });
+    { title: '功率走势 (W)  正=放电  负=充电' + tTitle, zeroBased: true, zeroAxis: 0, dec0: 0, unix0 });
 
   drawChart(document.getElementById('cSoc'),
     [{ pts: soc, color: '#0f4c81', axis: 0 },
      { pts: volt, color: '#0b7285', axis: 1, dash: [5, 4] }],
-    { title: '剩余电量 SOC (%) 与 电压 (V)', dec0: 0, dec1: 1 });
+    { title: '剩余电量 SOC (%) 与 电压 (V)' + tTitle, dec0: 0, dec1: 1, unix0 });
 
   document.getElementById('pLegend').textContent =
     '橙色：功率 W（由 电压×电流 现算）';
@@ -412,8 +438,9 @@ function selectRun(id) {
     else { ahIn += -pts[k].i * dt / 3600; pkIn = Math.max(pkIn, -p); }
   }
   const dur = pts[pts.length - 1].t - pts[0].t;
+  const startLine = unix0 ? ('开始于 <b>' + fmtClock(unix0) + '</b>　') : '';
   document.getElementById('runStats').innerHTML =
-    '时长 <b>' + timeLabel(dur) + '</b>　采样点 <b>' + pts.length + '</b>　' +
+    startLine + '时长 <b>' + timeLabel(dur) + '</b>　采样点 <b>' + pts.length + '</b>　' +
     'SOC <b>' + pts[0].soc + '% → ' + pts[pts.length - 1].soc + '%</b>　' +
     '电压 <b>' + pts[0].v.toFixed(1) + '→' + pts[pts.length - 1].v.toFixed(1) + ' V</b><br>' +
     '放电 <b>' + ahOut.toFixed(2) + ' Ah</b>（峰值 ' + pkOut.toFixed(0) + ' W）　' +
@@ -685,6 +712,7 @@ async function afterConnect(device, server) {
     });
   });
   ble = { tx, rx, device };
+  sendCmd('time:' + Math.floor(Date.now() / 1000));   // 自动对时: 让设备给记录盖真实时间戳
   setState('已连接 ' + (device.name || '设备'));
   document.getElementById('btnList').disabled = false;
   document.getElementById('btnDisconn').style.display = '';
