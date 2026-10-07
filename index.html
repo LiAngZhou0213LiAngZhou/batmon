@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>BatteryMon60V · 实时监测与记录</title>
+<!-- 加到 iPhone 主屏幕后全屏运行，看起来就是个 App -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="电池监测">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b3954">
+<style>
+  :root{--blue:#0f4c81;--orange:#e8590c;--red:#d62728;--teal:#0b7285;--ink:#212529;--line:#dee2e6;--muted:#6c757d}
+  *{box-sizing:border-box}
+  body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;margin:0;background:#f5f7fa;color:var(--ink);line-height:1.6}
+  .wrap{max-width:900px;margin:0 auto;padding:12px}
+  header{background:linear-gradient(135deg,#0b3954,#0f4c81);color:#fff;padding:16px 0}
+  header h1{margin:0;font-size:18px}
+  header p{margin:2px 0 0;font-size:12.5px;opacity:.9}
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:12px 0}
+  h2{font-size:15px;margin:0 0 8px;color:var(--blue)}
+  button{background:var(--blue);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer}
+  button.sec{background:#868e96}
+  button:disabled{opacity:.45}
+  textarea{width:100%;height:110px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
+    border:1px solid var(--line);border-radius:8px;padding:8px;resize:vertical}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .state{font-size:13px;color:var(--muted)}
+  .live{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+  .live div{background:#eef4f9;border-radius:8px;padding:6px;text-align:center}
+  .live b{display:block;font-size:16px;color:var(--blue)}
+  .live span{font-size:11px;color:var(--muted)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer}
+  .chip.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .chip.dis{border-left:4px solid var(--red)}
+  .chip.chg{border-left:4px solid var(--green,#2b8a3e)}
+  canvas{width:100%;height:230px;display:block;background:#fff;border-radius:8px}
+  .stats{font-size:12.5px;color:#495057;margin-top:6px}
+  .tip{font-size:12px;color:var(--muted);margin-top:6px}
+  .err{color:var(--red);font-size:13px}
+
+  /* ---------- 移动端 / iOS 适配 ---------- */
+  header{padding:calc(14px + env(safe-area-inset-top)) 0 14px}
+  .wrap{padding:12px;padding-bottom:calc(28px + env(safe-area-inset-bottom))}
+  button{padding:10px 14px;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  input[type=number],input[type=text]{font-size:16px;padding:8px 10px;border:1px solid var(--line);
+    border-radius:8px;background:#fff;color:var(--ink);min-width:0;width:100%}
+  .live{grid-template-columns:repeat(auto-fit,minmax(74px,1fr))}
+  .live b.badge{color:#fff;font-size:14px}
+
+  .cmdgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:8px}
+  .cmdgrid button{width:100%;font-size:13.5px}
+  .cmdgrid button.armed{background:var(--red)}
+  .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:10px;margin-top:10px}
+  .field{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--muted)}
+  .inline{display:flex;gap:6px}
+  .inline input{flex:1 1 auto}
+  .inline button{padding:8px 12px;flex:0 0 auto}
+  .tiny{width:66px !important;padding:6px 8px}
+  .chk{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted)}
+  .chk input{width:auto}
+
+  .term{background:#0b1a24;color:#d7e6ef;border-radius:8px;padding:10px;margin:6px 0 0;
+    height:170px;overflow:auto;font:11.5px/1.45 ui-monospace,Menlo,Consolas,monospace;
+    white-space:pre-wrap;word-break:break-all;-webkit-overflow-scrolling:touch}
+  .socwrap{margin-top:8px}
+  .socbar{height:14px;background:#e9ecef;border-radius:7px;overflow:hidden}
+  .socfill{display:block;height:100%;width:0;background:linear-gradient(90deg,#2b8a3e,#66a80f);transition:width .4s}
+  .socfill.low{background:linear-gradient(90deg,#d62728,#e8590c)}
+  .socTxt{font-size:12px;color:var(--muted);margin-top:3px}
+  .badge{display:inline-block;border-radius:6px;padding:1px 7px;font-size:12px;color:#fff;background:#868e96}
+  .badge.dis{background:var(--orange)}
+  .badge.chg{background:#2b8a3e}
+  .badge.idle{background:#868e96}
+  body.alarm{animation:alarmbg 1s ease-in-out 3}
+  @keyframes alarmbg{0%,100%{background:#f5f7fa}50%{background:#ffe3e3}}
+  canvas#cLive{height:170px;margin-top:8px}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>⚡ BatteryMon60V · 实时监测与控制</h1>
+  <p>实时 V/I/P/SOC/SOH + 命令下发 + 走势图　·　iPhone 用 <b>Bluefy</b> 打开（Safari 不支持蓝牙）</p>
+</div></header>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2>① 连接设备</h2>
+    <div class="row">
+      <button id="btnConn">🔗 连接设备</button>
+      <button id="btnDisconn" class="sec" style="display:none">断开</button>
+      <span class="state" id="connState">未连接</span>
+    </div>
+    <p class="tip"><b>iPhone：请用 Bluefy 打开本页</b>（App Store 搜 “Bluefy”，是带 Web Bluetooth 的浏览器；
+      Safari 到 iOS 27 都不支持 Web Bluetooth）。页面必须放在 <b>https://</b> 上，例如 GitHub Pages。
+      Android 直接用 Chrome / Edge。<br>
+      上锁屏或切到后台，页面会被系统暂停、数据会断——要保持记录就让页面留在前台（下面可开「屏幕常亮」）。</p>
+
+    <div class="live" id="live" style="display:none">
+      <div><b id="lv">--</b><span>电压 V</span></div>
+      <div><b id="li">--</b><span>电流 A</span></div>
+      <div><b id="lp">--</b><span>功率 W</span></div>
+      <div><b id="ls">--</b><span>SOC %</span></div>
+      <div><b id="lsoh">--</b><span>SOH %</span></div>
+      <div><b id="llogs">--</b><span>记录段</span></div>
+      <div><b id="lcyc">--</b><span>循环数</span></div>
+      <div><b id="lst" class="badge idle">--</b><span>状态</span></div>
+    </div>
+
+    <div class="socwrap" id="socWrap" style="display:none">
+      <div class="socbar"><i id="socBar" class="socfill"></i></div>
+      <div class="socTxt" id="socTxt">SOC --</div>
+    </div>
+
+    <canvas id="cLive" style="display:none"></canvas>
+
+    <div class="row" style="margin-top:8px">
+      <label class="chk"><input type="checkbox" id="alarmOn" checked> 低电量响铃</label>
+      <label class="chk">低于 <input type="number" id="alarmTh" value="30" min="5" max="90" step="5" class="tiny"> %</label>
+      <label class="chk"><input type="checkbox" id="wakeOn"> 屏幕常亮</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 控制</h2>
+    <div class="cmdgrid" id="quickCmds">
+      <button data-cmd="info">info　读当前参数</button>
+      <button data-cmd="zero" data-confirm="请在【静置、无充放电电流】时执行，否则零点会标错。">zero　电流校零</button>
+      <button data-cmd="vdef" data-confirm="电压分压比将恢复理论默认值 34.0。">vdef　电压回默认</button>
+      <button data-cmd="idef" data-confirm="电流校准将恢复默认 30mV/A、零点 1250mV。">idef　电流回默认</button>
+      <button data-cmd="log">log　记录列表</button>
+      <button data-cmd="save">save　立即保存</button>
+      <button data-cmd="help">help　命令表</button>
+      <button data-cmd="logclr" class="sec" data-confirm="将清空设备里全部骑行/充电记录（电池参数保留）。">logclr　清空记录</button>
+    </div>
+
+    <div class="fields">
+      <div class="field">电压校准 vcal · 万用表读数 V
+        <span class="inline"><input type="number" id="vVcal" step="0.01" placeholder="63.42"><button data-send="vcal">发</button></span>
+      </div>
+      <div class="field">电流校准 ical · 已知负载 A
+        <span class="inline"><input type="number" id="vIcal" step="0.1" placeholder="16"><button data-send="ical">发</button></span>
+      </div>
+      <div class="field">电池组标称电压 pack · V
+        <span class="inline"><input type="number" id="vPack" step="1" placeholder="60"><button data-send="pack">发</button></span>
+      </div>
+      <div class="field">每只容量 cell · Ah
+        <span class="inline"><input type="number" id="vCell" step="0.5" placeholder="20"><button data-send="cell">发</button></span>
+      </div>
+      <div class="field">手动 SOC · %
+        <span class="inline"><input type="number" id="vSoc" step="1" placeholder="87"><button data-send="soc">发</button></span>
+      </div>
+      <div class="field">手动 SOH · %
+        <span class="inline"><input type="number" id="vSoh" step="1" placeholder="95"><button data-send="soh">发</button></span>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="vRaw" placeholder="任意命令，如 soc:80" style="flex:1 1 160px">
+      <button id="btnRaw">发送</button>
+    </div>
+
+    <h2 style="margin-top:14px">设备回传</h2>
+    <pre class="term" id="term">（连接后这里显示设备的每一行回复）</pre>
+    <div class="row" style="margin-top:6px">
+      <button class="sec" id="btnTermToPaste">回传内容放入粘贴框</button>
+      <button class="sec" id="btnTermClear">清空回传</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>③ 取记录</h2>
+    <div class="row">
+      <button id="btnList" class="sec" disabled>读取记录列表</button>
+      <span class="state">连上后点它，把设备里的 run 列表拉过来</span>
+    </div>
+    <p class="tip">不想用蓝牙直连时，走粘贴方式（任何手机都行）：在蓝牙终端里发 <code>log</code> 看列表、
+      <code>log:12</code> 导出某一次明细，把文字整段粘到下框。</p>
+    <textarea id="paste" placeholder="把 log 与 log:&lt;run&gt; 的输出粘在这里，例如：&#10;SEG 0 kind=dis t0=0 dur=1740 n=58&#10;S 0s 63.20V 12.30A 87%&#10;S 30s 63.05V 15.40A 86%"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button id="btnParse">解析文本并绘图</button>
+      <button id="btnClear" class="sec">清空</button>
+      <span class="err" id="err"></span>
+    </div>
+  </div>
+
+  <div class="card" id="listCard" style="display:none">
+    <h2>④ 选择一次骑行 / 充电</h2>
+    <div class="chips" id="runList"></div>
+    <div class="stats" id="runStats"></div>
+  </div>
+
+  <div class="card" id="chartCard" style="display:none">
+    <h2>⑤ 走势</h2>
+    <canvas id="cPower"></canvas>
+    <div class="stats" id="pLegend"></div>
+    <canvas id="cSoc" style="margin-top:10px"></canvas>
+    <div class="stats" id="sLegend"></div>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+ *  1. 解析固件的文本输出
+ *     LOG/idx=...  记录列表      RUN/SEG/S  某一次明细
+ * ============================================================ */
+const runs = new Map();          // run -> {kind, segs:Map(seg->{t0,dur,kind,samples:[]})}
+
+function ensureRun(run, kind) {
+  if (!runs.has(run)) runs.set(run, { run, kind: kind || 'dis', segs: new Map() });
+  const r = runs.get(run);
+  if (kind) r.kind = kind;
+  return r;
+}
+function ensureSeg(run, seg, kind, t0, dur) {
+  const r = ensureRun(run, kind);
+  if (!r.segs.has(seg)) r.segs.set(seg, { seg, kind: kind || r.kind, t0: t0 || 0, dur: dur || 0, samples: [] });
+  const s = r.segs.get(seg);
+  if (t0) s.t0 = t0;
+  if (dur) s.dur = dur;
+  if (kind) s.kind = kind;
+  return s;
+}
+
+function parseText(txt) {
+  let curRun = null, curSeg = null;
+  for (const raw of txt.split(/\r?\n/)) {
+    const L = raw.trim();
+    if (!L || L[0] === '{') continue;          // 忽略每秒 JSON
+    let m;
+    if ((m = L.match(/^idx=\d+\s+run=(\d+)\s+seg=(\d+)\s+kind=(dis|chg)\s+t0=(\d+)s\s+dur=(\d+)s\s+n=(\d+)/))) {
+      ensureSeg(+m[1], +m[2], m[3], +m[4], +m[5]);
+      continue;
+    }
+    if ((m = L.match(/^RUN\s+(\d+)/))) { curRun = +m[1]; ensureRun(curRun); curSeg = null; continue; }
+    if ((m = L.match(/^SEG\s+(\d+)\s+kind=(dis|chg)\s+t0=(\d+)\s+dur=(\d+)\s+n=(\d+)/))) {
+      if (curRun === null) continue;
+      curSeg = ensureSeg(curRun, +m[1], m[2], +m[3], +m[4]);
+      continue;
+    }
+    if ((m = L.match(/^S\s+(\d+)s\s+([\d.]+)V\s+(-?[\d.]+)A\s+(\d+)%/))) {
+      if (curSeg) curSeg.samples.push({ t: +m[1], v: +m[2], i: +m[3], soc: +m[4] });
+      continue;
+    }
+  }
+}
+
+/* 把一次 run 的所有段按时间合并 */
+function seriesOf(run) {
+  const r = runs.get(run);
+  if (!r) return [];
+  let pts = [];
+  for (const s of r.segs.values()) pts = pts.concat(s.samples);
+  pts.sort((a, b) => a.t - b.t);
+  return pts;
+}
+
+/* ============================================================
+ *  2. 画图（纯 canvas，无外部依赖）
+ * ============================================================ */
+function timeLabel(t) {
+  const s = Math.round(t);
+  if (s >= 3600) return (s / 3600).toFixed(1) + 'h';
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+function drawChart(cv, series, opt) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  const padL = 48, padR = series.some(s => s.axis === 1) ? 48 : 14, padT = 30, padB = 26;
+  const W = w - padL - padR, H = h - padT - padB;
+
+  const ox = padL + W / 2, oy = padT + H / 2;   // 无数据时的占位
+  if (!series.length || !series[0].pts.length) {
+    g.fillStyle = '#adb5bd'; g.font = '13px sans-serif'; g.textAlign = 'center';
+    g.fillText('暂无数据', ox, oy);
+    return;
+  }
+
+  // 取范围
+  let tMax = 0;
+  const ranges = {};
+  for (const s of series) {
+    const ax = s.axis || 0;
+    if (!ranges[ax]) ranges[ax] = { min: Infinity, max: -Infinity };
+    for (const p of s.pts) {
+      const y = +p[1];                      // 强制转数字: 否则下面的 max+pad 会变成字符串拼接
+      if (y < ranges[ax].min) ranges[ax].min = y;
+      if (y > ranges[ax].max) ranges[ax].max = y;
+      if (p[0] > tMax) tMax = p[0];
+    }
+  }
+  for (const ax in ranges) {
+    let min = +ranges[ax].min, max = +ranges[ax].max;
+    if (!isFinite(min) || !isFinite(max)) { ranges[ax].min = 0; ranges[ax].max = 1; continue; }
+    if (min === max) { min -= 1; max += 1; }
+    const pad = (max - min) * 0.12;
+    ranges[ax].min = min - pad; ranges[ax].max = max + pad;
+    if (opt.zeroBased && opt.zeroAxis === +ax) ranges[ax].min = Math.min(0, ranges[ax].min);
+  }
+  if (tMax <= 0) tMax = 60;
+  const X = t => padL + (t / tMax) * W;
+  const Y = (ax, v) => padT + H - ((v - ranges[ax].min) / (ranges[ax].max - ranges[ax].min)) * H;
+
+  // 网格 + 左右轴刻度
+  g.font = '11px ui-monospace,monospace';
+  for (let i = 0; i <= 4; i++) {
+    const yy = padT + (H * i) / 4;
+    g.strokeStyle = i === 4 ? '#ced4da' : '#eef1f4';
+    g.beginPath(); g.moveTo(padL, yy); g.lineTo(padL + W, yy); g.stroke();
+    g.fillStyle = '#6c757d'; g.textAlign = 'right'; g.textBaseline = 'middle';
+    const v0 = ranges[0].max - ((ranges[0].max - ranges[0].min) * i) / 4;
+    g.fillText(v0.toFixed(opt.dec0 === undefined ? 1 : opt.dec0), padL - 6, yy);
+    if (ranges[1]) {
+      const v1 = ranges[1].max - ((ranges[1].max - ranges[1].min) * i) / 4;
+      g.textAlign = 'left';
+      g.fillText(v1.toFixed(opt.dec1 === undefined ? 1 : opt.dec1), padL + W + 6, yy);
+    }
+  }
+  // 时间轴
+  g.textAlign = 'center'; g.textBaseline = 'top'; g.fillStyle = '#6c757d';
+  for (let i = 0; i <= 4; i++) {
+    const t = (tMax * i) / 4;
+    g.fillText(timeLabel(t), padL + (W * i) / 4, padT + H + 6);
+  }
+
+  // 曲线
+  for (const s of series) {
+    const ax = s.axis || 0;
+    g.strokeStyle = s.color; g.lineWidth = 2; g.setLineDash(s.dash || []);
+    g.beginPath();
+    s.pts.forEach((p, i) => {
+      const x = X(p[0]), y = Y(ax, p[1]);
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    });
+    if (s.pts.length === 1) {
+      const p = s.pts[0];
+      g.arc(X(p[0]), Y(ax, p[1]), 3, 0, Math.PI * 2); g.fillStyle = s.color; g.fill();
+    } else g.stroke();
+    g.setLineDash([]);
+  }
+
+  // 标题
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.fillStyle = '#212529'; g.font = '600 13px sans-serif';
+  g.fillText(opt.title, 8, 18);
+}
+
+/* ============================================================
+ *  3. 渲染一次记录
+ * ============================================================ */
+let curRun = null;
+
+function renderRunList() {
+  const box = document.getElementById('runList');
+  box.innerHTML = '';
+  const ids = [...runs.keys()].sort((a, b) => a - b);
+  if (!ids.length) { box.innerHTML = '<span class="state">没有解析到记录</span>'; return; }
+  ids.forEach(id => {
+    const r = runs.get(id);
+    const b = document.createElement('button');
+    b.className = 'chip ' + (r.kind === 'chg' ? 'chg' : 'dis');
+    b.textContent = 'run ' + id;
+    b.onclick = () => selectRun(id);
+    box.appendChild(b);
+  });
+  document.getElementById('listCard').style.display = '';
+  if (curRun === null) selectRun(ids[ids.length - 1]);
+  else selectRun(curRun);
+}
+
+function selectRun(id) {
+  curRun = id;
+  [...document.querySelectorAll('#runList .chip')].forEach(c => c.classList.toggle('on', c.textContent === 'run ' + id));
+  const pts = seriesOf(id);
+  if (!pts.length) { document.getElementById('chartCard').style.display = 'none'; return; }
+  document.getElementById('chartCard').style.display = '';
+
+  const power = pts.map(p => [p.t, p.v * p.i]);          // 放电为正, 充电为负
+  const soc = pts.map(p => [p.t, p.soc]);
+  const volt = pts.map(p => [p.t, p.v]);
+
+  drawChart(document.getElementById('cPower'),
+    [{ pts: power, color: '#e8590c', axis: 0 }],
+    { title: '功率走势 (W)  正=放电  负=充电', zeroBased: true, zeroAxis: 0, dec0: 0 });
+
+  drawChart(document.getElementById('cSoc'),
+    [{ pts: soc, color: '#0f4c81', axis: 0 },
+     { pts: volt, color: '#0b7285', axis: 1, dash: [5, 4] }],
+    { title: '剩余电量 SOC (%) 与 电压 (V)', dec0: 0, dec1: 1 });
+
+  document.getElementById('pLegend').textContent =
+    '橙色：功率 W（由 电压×电流 现算）';
+  document.getElementById('sLegend').innerHTML =
+    '蓝色实线：SOC %（左轴）　青色虚线：电压 V（右轴）';
+
+  // 统计
+  let ahOut = 0, ahIn = 0, pkOut = 0, pkIn = 0;
+  for (let k = 0; k < pts.length; k++) {
+    const dt = k ? pts[k].t - pts[k - 1].t : 0;
+    const p = pts[k].v * pts[k].i;
+    if (pts[k].i > 0) { ahOut += pts[k].i * dt / 3600; pkOut = Math.max(pkOut, p); }
+    else { ahIn += -pts[k].i * dt / 3600; pkIn = Math.max(pkIn, -p); }
+  }
+  const dur = pts[pts.length - 1].t - pts[0].t;
+  document.getElementById('runStats').innerHTML =
+    '时长 <b>' + timeLabel(dur) + '</b>　采样点 <b>' + pts.length + '</b>　' +
+    'SOC <b>' + pts[0].soc + '% → ' + pts[pts.length - 1].soc + '%</b>　' +
+    '电压 <b>' + pts[0].v.toFixed(1) + '→' + pts[pts.length - 1].v.toFixed(1) + ' V</b><br>' +
+    '放电 <b>' + ahOut.toFixed(2) + ' Ah</b>（峰值 ' + pkOut.toFixed(0) + ' W）　' +
+    '充电 <b>' + ahIn.toFixed(2) + ' Ah</b>（峰值 ' + pkIn.toFixed(0) + ' W）';
+}
+
+/* ============================================================
+ *  4. 粘贴解析
+ * ============================================================ */
+document.getElementById('btnParse').onclick = () => {
+  const txt = document.getElementById('paste').value;
+  const before = runs.size;
+  parseText(txt);
+  document.getElementById('err').textContent = runs.size === before ? '没解析到新内容，检查一下粘贴的文本' : '';
+  renderRunList();
+};
+document.getElementById('btnClear').onclick = () => {
+  runs.clear(); curRun = null;
+  document.getElementById('paste').value = '';
+  document.getElementById('listCard').style.display = 'none';
+  document.getElementById('chartCard').style.display = 'none';
+  document.getElementById('err').textContent = '';
+};
+
+/* ============================================================
+ *  5. 工具：设备回传终端 / 蜂鸣
+ * ============================================================ */
+let termLines = [];
+function term(s) {
+  termLines.push(s);
+  if (termLines.length > 500) termLines = termLines.slice(-500);
+  const el = document.getElementById('term');
+  if (el) { el.textContent = termLines.join('\n'); el.scrollTop = el.scrollHeight; }
+}
+function termClear() {
+  termLines = [];
+  const el = document.getElementById('term');
+  if (el) el.textContent = '（已清空）';
+}
+
+/* iOS 上 AudioContext 必须在一次用户手势里创建/恢复，否则不会出声 */
+let actx = null;
+function unlockAudio() {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+  } catch (e) { }
+}
+function beep(n) {
+  try {
+    unlockAudio();
+    if (!actx) return;
+    for (let k = 0; k < (n || 1); k++) {
+      const o = actx.createOscillator(), gn = actx.createGain();
+      const t0 = actx.currentTime + k * 0.4;
+      o.type = 'sine'; o.frequency.value = 880;
+      gn.gain.setValueAtTime(0.0001, t0);
+      gn.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
+      gn.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.28);
+      o.connect(gn); gn.connect(actx.destination);
+      o.start(t0); o.stop(t0 + 0.3);
+    }
+  } catch (e) { }
+}
+document.addEventListener('click', unlockAudio, { once: true });
+
+/* ============================================================
+ *  6. 实时面板 + 低电量报警 + 实时走势
+ * ============================================================ */
+let alarmArmed = true, wakeLock = null;
+const livePts = [];
+let liveT0 = 0;
+
+function setState(s) { document.getElementById('connState').textContent = s; }
+function num(x, n) { return (x === undefined || x === null || isNaN(x)) ? '--' : Number(x).toFixed(n); }
+
+function showLive(json) {
+  let d;
+  try { d = JSON.parse(json); } catch (e) { return; }
+  if (d.v === undefined) return;
+
+  /* 第一帧可能比 afterConnect 里的显示设置更早到，这里兜底 */
+  document.getElementById('live').style.display = '';
+  document.getElementById('socWrap').style.display = '';
+  document.getElementById('cLive').style.display = '';
+
+  document.getElementById('lv').textContent = num(d.v, 2);
+  document.getElementById('li').textContent = num(d.i, 2);
+  document.getElementById('lp').textContent = num(d.p, 0);
+  document.getElementById('ls').textContent = num(d.soc, 1);
+  document.getElementById('lsoh').textContent = num(d.soh, 1);
+  document.getElementById('llogs').textContent = (d.logs === undefined ? '--' : d.logs);
+  document.getElementById('lcyc').textContent = (d.cyc === undefined ? '--' : d.cyc);
+
+  const bd = document.getElementById('lst');
+  bd.textContent = d.st === 'chg' ? '充电' : (d.st === 'dis' ? '放电' : '静置');
+  bd.className = 'badge ' + (d.st || 'idle');
+
+  const th = Number(document.getElementById('alarmTh').value) || 30;
+  document.getElementById('socBar').style.width = Math.max(0, Math.min(100, d.soc || 0)) + '%';
+  document.getElementById('socBar').className = 'socfill' + ((d.soc || 0) <= th ? ' low' : '');
+  document.getElementById('socTxt').textContent =
+    'SOC ' + num(d.soc, 1) + '%　SOH ' + num(d.soh, 1) + '%　' +
+    num(d.v, 2) + 'V × ' + num(d.i, 2) + 'A = ' + num(d.p, 0) + 'W';
+
+  const t = num(d.soc, 0) + '% · ' + num(d.v, 1) + 'V';
+  if (document.title.indexOf(t) !== 0) document.title = t + ' · BatteryMon';
+
+  renderLiveChart(d);
+  checkAlarm(d);
+}
+
+function renderLiveChart(d) {
+  const now = Date.now();
+  if (!liveT0) liveT0 = now;
+  livePts.push({ t: (now - liveT0) / 1000, p: (+d.v || 0) * (+d.i || 0), soc: +d.soc || 0 });
+  while (livePts.length && (now - liveT0) / 1000 - livePts[0].t > 300) livePts.shift();
+  const base = livePts[0].t;
+  drawChart(document.getElementById('cLive'),
+    [{ pts: livePts.map(q => [q.t - base, q.p]), color: '#e8590c', axis: 0 },
+     { pts: livePts.map(q => [q.t - base, q.soc]), color: '#0f4c81', axis: 1, dash: [5, 4] }],
+    { title: '实时走势（最近 5 分钟）　橙=功率 W　蓝=SOC %', zeroBased: true, zeroAxis: 0, dec0: 0, dec1: 0 });
+}
+
+function checkAlarm(d) {
+  const on = document.getElementById('alarmOn').checked;
+  const th = Number(document.getElementById('alarmTh').value) || 30;
+  if (!on) { alarmArmed = true; document.body.classList.remove('alarm'); return; }
+  const s = d.soc || 0;
+  if (s <= th) {
+    if (alarmArmed) {
+      alarmArmed = false;
+      document.body.classList.add('alarm');
+      beep(3);
+      if (navigator.vibrate) { try { navigator.vibrate([200, 100, 200, 100, 200]); } catch (e) { } }
+      term('[报警] SOC ' + num(s, 1) + '% 已低于 ' + th + '%');
+    }
+  } else if (s > th + 5) {                      // 回差 5%，避免在门限上反复叫
+    alarmArmed = true;
+    document.body.classList.remove('alarm');
+  }
+}
+
+async function applyWake(on) {
+  try {
+    if (on) {
+      if (!('wakeLock' in navigator)) { term('[屏幕常亮] 此浏览器不支持，请到 设置→显示与亮度→自动锁定 改长一点'); return; }
+      wakeLock = await navigator.wakeLock.request('screen');
+      term('[屏幕常亮] 已开启');
+    } else if (wakeLock) {
+      await wakeLock.release(); wakeLock = null;
+      term('[屏幕常亮] 已关闭');
+    }
+  } catch (e) { term('[屏幕常亮] ' + (e.message || e)); }
+}
+
+/* ============================================================
+ *  7. 控制：快捷命令 / 参数下发 / 任意命令
+ * ============================================================ */
+async function sendCmd(cmd) {
+  if (!ble) { term('[未连接] 请先点最上面的「连接设备」'); return false; }
+  unlockAudio();
+  const data = new TextEncoder().encode(cmd);
+  try {
+    await ble.rx.writeValue(data);
+  } catch (e) {
+    try { await ble.rx.writeValueWithoutResponse(data); }
+    catch (e2) { term('[发送失败] ' + (e2.message || e2)); return false; }
+  }
+  term('> ' + cmd);
+  return true;
+}
+
+/* 危险命令：连点两次才发（不依赖 confirm()，某些内置浏览器会屏蔽它） */
+function armOrFire(btn, label) {
+  if (btn.dataset.armed === '1') {
+    btn.dataset.armed = ''; btn.textContent = label; btn.classList.remove('armed');
+    return true;
+  }
+  btn.dataset.armed = '1';
+  btn.textContent = '⚠ 再点一次确认';
+  btn.classList.add('armed');
+  clearTimeout(btn._t);
+  btn._t = setTimeout(() => {
+    btn.dataset.armed = ''; btn.textContent = label; btn.classList.remove('armed');
+  }, 4000);
+  return false;
+}
+
+document.querySelectorAll('#quickCmds button').forEach(btn => {
+  btn.dataset.label = btn.textContent;
+  btn.onclick = async () => {
+    if (btn.dataset.confirm) {
+      if (!btn.dataset.armed) term('[提示] ' + btn.dataset.confirm);
+      if (!armOrFire(btn, btn.dataset.label)) return;
+    }
+    await sendCmd(btn.dataset.cmd);
+  };
+});
+
+const PARAM_INPUTS = { vcal: 'vVcal', ical: 'vIcal', pack: 'vPack', cell: 'vCell', soc: 'vSoc', soh: 'vSoh' };
+document.querySelectorAll('[data-send]').forEach(btn => {
+  btn.onclick = async () => {
+    const kind = btn.dataset.send;
+    const inp = document.getElementById(PARAM_INPUTS[kind]);
+    const v = (inp.value || '').trim();
+    if (!v) { term('[提示] 请先填数值再点「发」'); inp.focus(); return; }
+    if (await sendCmd(kind + ':' + v)) inp.value = '';
+  };
+});
+
+document.getElementById('btnRaw').onclick = async () => {
+  const inp = document.getElementById('vRaw');
+  const v = (inp.value || '').trim();
+  if (!v) return;
+  if (await sendCmd(v)) inp.value = '';
+};
+document.getElementById('vRaw').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btnRaw').click(); }
+});
+document.getElementById('btnTermClear').onclick = termClear;
+document.getElementById('btnTermToPaste').onclick = () => {
+  document.getElementById('paste').value = termLines.filter(l => l[0] !== '>').join('\n');
+  document.getElementById('paste').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+/* ============================================================
+ *  8. 蓝牙连接（Web Bluetooth）
+ *     Android: Chrome / Edge      iOS: Bluefy（Safari 不支持）
+ * ============================================================ */
+const NUS_SVC = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const NUS_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';   // 设备 -> 手机 (notify)
+const NUS_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';   // 手机 -> 设备 (write)
+let ble = null, lastDevice = null, rxBuf = '', lastRxAt = 0;
+
+/* 优先按名字过滤；有的实现不支持 filters，就退回"列出全部设备" */
+async function pickDevice() {
+  const opt = { optionalServices: [NUS_SVC] };
+  try {
+    return await navigator.bluetooth.requestDevice(Object.assign({ filters: [{ namePrefix: 'BAT-MON' }] }, opt));
+  } catch (e) {
+    if (e && e.name === 'NotFoundError') throw e;          // 用户自己取消的，别再弹一次
+    term('[提示] 按名字过滤不可用，改为列出全部设备，请选 BAT-MON-60');
+    return await navigator.bluetooth.requestDevice(Object.assign({ acceptAllDevices: true }, opt));
+  }
+}
+
+function onDisconnected() {
+  ble = null;
+  setState('已断开（点「连接设备」可重连）');
+  document.getElementById('btnList').disabled = true;
+  document.getElementById('btnDisconn').style.display = 'none';
+  term('[已断开]');
+}
+
+async function afterConnect(device, server) {
+  const svc = await server.getPrimaryService(NUS_SVC);
+  const tx = await svc.getCharacteristic(NUS_TX);
+  const rx = await svc.getCharacteristic(NUS_RX);
+  await tx.startNotifications();
+  tx.addEventListener('characteristicvaluechanged', ev => {
+    const txt = new TextDecoder().decode(ev.target.value);
+    lastRxAt = Date.now();
+    rxBuf += txt;
+    txt.split('\n').forEach(l => {
+      const s = l.trim();
+      if (!s) return;
+      if (s[0] === '{') showLive(s); else term(s);         // JSON 走实时面板，其余进回传框
+    });
+  });
+  ble = { tx, rx, device };
+  setState('已连接 ' + (device.name || '设备'));
+  document.getElementById('btnList').disabled = false;
+  document.getElementById('btnDisconn').style.display = '';
+  document.getElementById('live').style.display = '';
+  document.getElementById('socWrap').style.display = '';
+  document.getElementById('cLive').style.display = '';
+  term('[已连接] ' + (device.name || '') + '　可以发命令了');
+}
+
+document.getElementById('btnConn').onclick = async () => {
+  const err = document.getElementById('err');
+  err.textContent = '';
+  if (!navigator.bluetooth) {
+    err.innerHTML = '此浏览器没有 Web Bluetooth。<b>iPhone 请用 Bluefy 打开本页</b>（Safari 不支持），或用下面的粘贴方式。';
+    return;
+  }
+  try {
+    setState('正在连接…');
+    if (!lastDevice) {
+      lastDevice = await pickDevice();
+      lastDevice.addEventListener('gattserverdisconnected', onDisconnected);
+    }
+    const server = await lastDevice.gatt.connect();       // 已授权过的设备不用重新选
+    await afterConnect(lastDevice, server);
+  } catch (e) {
+    setState('未连接');
+    err.textContent = (e && e.name === 'NotFoundError') ? '已取消选择设备' : ('连接失败：' + ((e && e.message) || e));
+  }
+};
+
+document.getElementById('btnDisconn').onclick = () => { try { lastDevice.gatt.disconnect(); } catch (e) { } };
+
+/* 发命令并收集回传；done() 为真且线路安静，或超时即结束 */
+function sendAndCollect(cmd, done, maxMs) {
+  return new Promise(res => {
+    rxBuf = ''; lastRxAt = Date.now();
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      const quiet = Date.now() - lastRxAt > 700;
+      if ((done(rxBuf) && quiet) || Date.now() - t0 > maxMs) {
+        clearInterval(iv); res(rxBuf);
+      }
+    }, 150);
+    sendCmd(cmd);
+  });
+}
+
+document.getElementById('btnList').onclick = async () => {
+  const err = document.getElementById('err');
+  err.textContent = '正在读取记录列表…';
+  const txt = await sendAndCollect('log', b => /^idx=|no record/m.test(b), 8000);
+  if (!ble) { err.textContent = '连接已断开'; return; }
+  parseText(txt);
+  err.textContent = runs.size ? '' : '设备里还没有记录（要先有一次骑行或充电）';
+  renderRunList();
+};
+
+/* 选某一次记录时，若已连接就直接从设备拉明细 */
+const _selectRun = selectRun;
+selectRun = async function (id) {
+  _selectRun(id);
+  if (!ble) return;
+  if (seriesOf(id).length) return;                 // 已经有数据, 不用再拉
+  const err = document.getElementById('err');
+  err.textContent = '正在读取 run ' + id + ' 的明细…';
+  const txt = await sendAndCollect('log:' + id, b => /END run=/.test(b), 60000);
+  parseText(txt);
+  err.textContent = '';
+  _selectRun(id);
+};
+
+document.getElementById('wakeOn').onchange = e => applyWake(e.target.checked);
+document.getElementById('alarmTh').onchange = () => { alarmArmed = true; };
+window.addEventListener('resize', () => { if (curRun !== null) selectRun(curRun); });
+document.addEventListener('visibilitychange', () => {   // 回到前台时重新申请屏幕常亮
+  if (document.visibilityState === 'visible' && wakeLock) applyWake(true);
+});
+</script>
+</body>
+</html>
